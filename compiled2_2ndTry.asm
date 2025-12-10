@@ -306,15 +306,13 @@ $L133:
 # PH?N 2: SHIM LAYER (Gi? l?p th? vi?n C & Soft Float)
 # =========================================================================
 
-# --- Memory ---
-# --- Memory Management (?ã s?a ?? c?n ch?nh 8 byte) ---
+# --- Memory Management (Fixed Alignment) ---
 malloc:
-    # Làm tròn size ($a0/$4) lên b?i s? c?a 8 ?? ??m b?o alignment cho ldc1
-    addi    $4, $4, 7       # C?ng thêm 7
-    li      $t0, -8         # Mask 0xFFFFFFF8
-    and     $4, $4, $t0     # Làm tròn xu?ng (sau khi ?ã c?ng 7 -> thành làm tròn lên)
-
-    li      $v0, 9          # sbrk
+    # Làm tròn size lên b?i s? c?a 8 ?? tránh l?i alignment v?i ldc1
+    addi    $4, $4, 7
+    li      $t0, -8
+    and     $4, $4, $t0
+    li      $v0, 9
     syscall
     jr      $ra
 free:
@@ -407,10 +405,9 @@ read_signal:
 rs_inp:
     la      $2, input_content
 rs_end:
-    li      $t0, 10
-    sw      $t0, 0($5)
+    # B? l?nh sw $t0, 0($5) vì $5 không ???c kh?i t?o trong main
+    # Main ?ã t? set size = 10 r?i nên không c?n ghi l?i.
     jr      $ra
-
 # --- Math Wrappers (Soft Float $4-$7 to FPU) ---
 __adddf3:
     mtc1 $4, $f0
@@ -492,88 +489,73 @@ round:
 # =========================================================================
 
 matrix_create:
-        addiu   $sp,$sp,-48
-        sw      $31,44($sp)
-        sw      $fp,40($sp)
-        sw      $16,36($sp)
-        move    $fp,$sp
-        sw      $4,48($fp)
-        sw      $5,52($fp)
-        li      $4,12
-        jal     malloc
-        nop
-        sw      $2,28($fp)
-        lw      $2,28($fp)
-        lw      $3,48($fp)
-        sw      $3,4($2)
-        lw      $2,28($fp)
-        lw      $3,52($fp)
-        sw      $3,8($2)
-        lw      $2,48($fp)
-        sll     $2,$2,2
-        move    $4,$2
-        jal     malloc
-        nop
-        move    $3,$2
-        lw      $2,28($fp)
-        sw      $3,0($2)
-        sw      $0,24($fp)
-        b       L_mc_check
-        nop
-L_mc_loop:
-        lw      $2,52($fp)
-        sll     $4,$2,3
-        jal     malloc
-        nop
-        move    $16, $2
-        lw      $2,28($fp)
-        lw      $3,0($2)
-        lw      $2,24($fp)
-        sll     $2,$2,2
-        addu    $16,$3,$2 # bug fix: was overwriting 16
-        # Need to store malloc result to data[i]
-        # data ptr is $3. &data[i] is $3 + i*4.
-        # But previous instructions messed up registers.
-        # Reloading...
-        lw      $2,28($fp)
-        lw      $3,0($2)
-        lw      $2,24($fp)
-        sll     $2,$2,2
-        addu    $16,$3,$2 # Address of data[i]
-        
-        # Malloc row
-        lw      $2,52($fp)
-        sll     $4,$2,3
-        jal     malloc
-        nop
-        
-        sw      $2,0($16) # data[i] = malloc ptr
-        
-        # Memset
-        move    $4, $2
-        move    $5, $0
-        lw      $2,52($fp)
-        sll     $6, $2, 3
-        jal     memset
-        nop
+    addiu   $sp, $sp, -48
+    sw      $31, 44($sp)
+    sw      $fp, 40($sp)
+    sw      $s0, 36($sp)
+    move    $fp, $sp
+    
+    sw      $4, 48($fp)     # rows
+    sw      $5, 52($fp)     # cols
+    
+    # Alloc Matrix struct
+    li      $4, 16
+    jal     malloc
+    nop
+    move    $s0, $2
+    
+    # Set rows, cols
+    lw      $3, 48($fp)
+    sw      $3, 4($s0)
+    lw      $3, 52($fp)
+    sw      $3, 8($s0)
+    
+    # Alloc data pointers array
+    lw      $4, 48($fp)
+    sll     $4, $4, 2       # rows * 4
+    jal     malloc
+    nop
+    sw      $2, 0($s0)      # m->data
+    
+    # Loop alloc rows
+    li      $t0, 0          # i
+Loop_MC:
+    lw      $3, 48($fp)
+    slt     $1, $t0, $3
+    beq     $1, $0, End_MC
+    
+    # Alloc row
+    lw      $4, 52($fp)
+    sll     $4, $4, 3       # cols * 8
+    jal     malloc
+    nop
+    
+    # Store ptr to m->data[i]
+    lw      $3, 0($s0)
+    sll     $1, $t0, 2
+    addu    $1, $3, $1
+    sw      $2, 0($1)
+    
+    # Memset 0
+    move    $4, $2
+    move    $5, $0
+    lw      $6, 52($fp)
+    sll     $6, $6, 3
+    jal     memset
+    nop
+    
+    addiu   $t0, $t0, 1
+    j       Loop_MC
+    nop
 
-        lw      $2,24($fp)
-        addiu   $2,$2,1
-        sw      $2,24($fp)
-L_mc_check:
-        lw      $3,24($fp)
-        lw      $2,48($fp)
-        slt     $2,$3,$2
-        bne     $2,$0,L_mc_loop
-        nop
-        lw      $2,28($fp)
-        move    $sp,$fp
-        lw      $31,44($sp)
-        lw      $fp,40($sp)
-        lw      $16,36($sp)
-        addiu   $sp,$sp,48
-        jr      $31
-        nop
+End_MC:
+    move    $2, $s0
+    lw      $s0, 36($sp)
+    lw      $fp, 40($sp)
+    lw      $31, 44($sp)
+    addiu   $sp, $sp, 48
+    jr      $31
+    nop
 
 matrix_copy:
         addiu   $sp,$sp,-48
@@ -682,121 +664,92 @@ compute_autocorrelation:
     addiu   $sp, $sp, -88
     sw      $31, 84($sp)
     sw      $fp, 80($sp)
-    sw      $s0, 76($sp) # x
-    sw      $s1, 72($sp) # N
-    sw      $s2, 68($sp) # M
-    sw      $s3, 64($sp) # R (matrix)
-    sw      $s4, 60($sp) # rxx (array)
+    sw      $s0, 76($sp)
+    sw      $s1, 72($sp)
+    sw      $s2, 68($sp)
+    sw      $s3, 64($sp)
+    sw      $s4, 60($sp)
     move    $fp, $sp
-
     move    $s0, $4      # x
     move    $s1, $5      # N
     move    $s2, $6      # M
 
-    # 1. R = matrix_create(M, M)
+    # R = matrix_create(M, M)
     move    $4, $s2
     move    $5, $s2
     jal     matrix_create
     nop
     move    $s3, $2
 
-    # 2. rxx = malloc(M * 8)
+    # rxx = malloc(M * 8)
     sll     $4, $s2, 3
     jal     malloc
     nop
     move    $s4, $2
 
-    # 3. Tính rxx[k]
-    li      $t0, 0       # k = 0
+    li      $t0, 0       # k
 Loop_AC_K:
     beq     $t0, $s2, Loop_AC_K_End
-
     mtc1    $0, $f0
-    mtc1    $0, $f1      # sum = 0.0
-
-    move    $t1, $t0     # n = k
+    mtc1    $0, $f1      # sum
+    move    $t1, $t0     # n
 Loop_AC_N:
-    slt     $t2, $t1, $s1 # n < N?
+    slt     $t2, $t1, $s1
     beq     $t2, $0, Loop_AC_N_End
-
-    # Load x[n]
     sll     $t3, $t1, 3
     addu    $t3, $s0, $t3
-    ldc1    $f4, 0($t3)
-
-    # Load x[n-k]
-    subu    $t4, $t1, $t0 # idx = n - k
+    ldc1    $f4, 0($t3)  # x[n]
+    subu    $t4, $t1, $t0
     sll     $t4, $t4, 3
     addu    $t4, $s0, $t4
-    ldc1    $f6, 0($t4)
-
+    ldc1    $f6, 0($t4)  # x[n-k]
     mul.d   $f4, $f4, $f6
-    add.d   $f0, $f0, $f4 # sum += ...
-
+    add.d   $f0, $f0, $f4
     addi    $t1, $t1, 1
     b       Loop_AC_N
     nop
 Loop_AC_N_End:
-
-    # rxx[k] = sum / N
     mtc1    $s1, $f4
-    cvt.d.w $f4, $f4     # Convert N to double
+    cvt.d.w $f4, $f4
     div.d   $f0, $f0, $f4
-
-    # Store rxx[k]
     sll     $t3, $t0, 3
     addu    $t3, $s4, $t3
     sdc1    $f0, 0($t3)
-
     addi    $t0, $t0, 1
     b       Loop_AC_K
     nop
 Loop_AC_K_End:
 
-    # 4. Fill Matrix R (Toeplitz)
-    li      $t0, 0       # i = 0
+    li      $t0, 0       # i
 Loop_Fill_I:
     beq     $t0, $s2, Loop_Fill_I_End
-    
-    li      $t1, 0       # j = 0
+    li      $t1, 0       # j
 Loop_Fill_J:
     beq     $t1, $s2, Loop_Fill_J_End
-
-    # lag = abs(i - j)
     subu    $t3, $t0, $t1
     bgez    $t3, Abs_Done
     subu    $t3, $0, $t3
 Abs_Done:
-    
-    # Load rxx[lag]
     sll     $t4, $t3, 3
     addu    $t4, $s4, $t4
     ldc1    $f0, 0($t4)
-
-    # Store into R->data[i][j]
-    lw      $t4, 0($s3)  # R->data
-    sll     $t5, $t0, 2  # i*4
+    lw      $t4, 0($s3)
+    sll     $t5, $t0, 2
     addu    $t5, $t4, $t5
-    lw      $t5, 0($t5)  # row i ptr
-    sll     $t6, $t1, 3  # j*8
+    lw      $t5, 0($t5)
+    sll     $t6, $t1, 3
     addu    $t6, $t5, $t6
     sdc1    $f0, 0($t6)
-
     addi    $t1, $t1, 1
     b       Loop_Fill_J
     nop
 Loop_Fill_J_End:
-
     addi    $t0, $t0, 1
     b       Loop_Fill_I
     nop
 Loop_Fill_I_End:
 
-    # Free rxx (optional, but good practice)
-    # move $4, $s4; jal free
-
-    move    $2, $s3      # Return R
-
+    move    $2, $s3
     lw      $s4, 60($sp)
     lw      $s3, 64($sp)
     lw      $s2, 68($sp)
@@ -812,76 +765,55 @@ compute_cross_correlation:
     addiu   $sp, $sp, -80
     sw      $31, 76($sp)
     sw      $fp, 72($sp)
-    sw      $s0, 68($sp) # d
-    sw      $s1, 64($sp) # x
-    sw      $s2, 60($sp) # N
-    sw      $s3, 56($sp) # M
-    sw      $s4, 52($sp) # gamma
+    sw      $s0, 68($sp)
+    sw      $s1, 64($sp)
+    sw      $s2, 60($sp)
+    sw      $s3, 56($sp)
+    sw      $s4, 52($sp)
     move    $fp, $sp
-
-    move    $s0, $4
-    move    $s1, $5
-    move    $s2, $6
-    move    $s3, $7
-
-    # gamma_d = malloc(M * 8)
+    move    $s0, $4 # d
+    move    $s1, $5 # x
+    move    $s2, $6 # N
+    move    $s3, $7 # M
     sll     $4, $s3, 3
     jal     malloc
     nop
     move    $s4, $2
-
-    # Set result size (*result_size = M)
-    lw      $t0, 96($sp) # Arg 5 is at 16 + frame_size(80) = 96($sp)
-    sw      $s3, 0($t0)
-
-    # Loop k=0 to M
-    li      $t0, 0       # k
+    lw      $t0, 96($sp)
+    sw      $s3, 0($t0) # size
+    li      $t0, 0
 Loop_CC_K:
     beq     $t0, $s3, Loop_CC_K_End
-
     mtc1    $0, $f0
-    mtc1    $0, $f1      # sum = 0.0
-
-    move    $t1, $t0     # n = k
+    mtc1    $0, $f1
+    move    $t1, $t0
 Loop_CC_N:
-    slt     $t2, $t1, $s2 # n < N?
+    slt     $t2, $t1, $s2
     beq     $t2, $0, Loop_CC_N_End
-
-    # Load d[n]
     sll     $t3, $t1, 3
     addu    $t3, $s0, $t3
     ldc1    $f4, 0($t3)
-
-    # Load x[n-k]
     subu    $t4, $t1, $t0
     sll     $t4, $t4, 3
     addu    $t4, $s1, $t4
     ldc1    $f6, 0($t4)
-
     mul.d   $f4, $f4, $f6
     add.d   $f0, $f0, $f4
-
     addi    $t1, $t1, 1
     b       Loop_CC_N
     nop
 Loop_CC_N_End:
-
-    # gamma[k] = sum / N
     mtc1    $s2, $f4
     cvt.d.w $f4, $f4
     div.d   $f0, $f0, $f4
-
     sll     $t3, $t0, 3
     addu    $t3, $s4, $t3
     sdc1    $f0, 0($t3)
-
     addi    $t0, $t0, 1
     b       Loop_CC_K
     nop
 Loop_CC_K_End:
-
     move    $2, $s4
-
     lw      $s4, 52($sp)
     lw      $s3, 56($sp)
     lw      $s2, 60($sp)
@@ -897,201 +829,41 @@ solve_linear_system:
     addiu   $sp, $sp, -128
     sw      $31, 124($sp)
     sw      $fp, 120($sp)
-    sw      $s0, 116($sp) # L?u A_copy
-    sw      $s1, 112($sp) # L?u b_copy
-    sw      $s2, 108($sp) # L?u n
-    sw      $s3, 104($sp) # L?u x (k?t qu?)
-    sw      $s4, 100($sp) # Bi?n ch?y p / i
-    sw      $s5, 96($sp)  # Bi?n ch?y j
+    sw      $s0, 116($sp)
+    sw      $s1, 112($sp)
+    sw      $s2, 108($sp)
+    sw      $s3, 104($sp)
+    sw      $s4, 100($sp)
+    sw      $s5, 96($sp)
     move    $fp, $sp
-
-    # Arguments: $4=A, $5=b, $6=n, $7=size_ptr
-    sw      $7, 140($sp)  # L?u con tr? tr? v? size ?? dùng sau
-
-    move    $s2, $6       # s2 = n
-
-    # --- 1. T?o b?n sao Matrix A ---
-    # $4 ?ã là A
+    sw      $7, 140($sp) # size ptr
+    move    $s2, $6 # n
     jal     matrix_copy
     nop
-    move    $s0, $2       # s0 = A_copy
-
-    # --- 2. T?o b?n sao vector b ---
-    sll     $4, $s2, 3    # size = n * 8 bytes
-    jal     malloc
-    nop
-    move    $s1, $2       # s1 = b_copy
-
-    # --- 3. Copy d? li?u b vào b_copy ---
-    move    $4, $s1       # dest
-    lw      $5, 132($fp)  # src (l?y l?i b t? stack arg c?a main)
-    sll     $6, $s2, 3    # n * 8
-    jal     memcpy
-    nop
-
-    # ==========================================
-    # PH?N A: KH? GAUSS (FORWARD ELIMINATION)
-    # ==========================================
-    li      $s4, 0        # p = 0
-
-Loop_P:
-    beq     $s4, $s2, Loop_P_End # if p == n, break
-
-    # (B? qua b??c tìm pivot ph?c t?p ?? ??n gi?n hóa, 
-    # gi? s? ma tr?n t? t??ng quan R ?? t?t cho Wiener Filter)
-
-    addi    $s5, $s4, 1   # i = p + 1 (dùng s5 làm i t?m th?i)
-
-Loop_I:
-    slt     $t0, $s5, $s2 # if i < n
-    beq     $t0, $0, Loop_I_End
-
-    # --- Tính factor = A[i][p] / A[p][p] ---
-    
-    # Load A[i][p] -> $f4
-    lw      $t0, 0($s0)     # L?y A->data
-    sll     $t1, $s5, 2     # i*4
-    addu    $t1, $t0, $t1   # &data[i]
-    lw      $t1, 0($t1)     # data[i]
-    sll     $t2, $s4, 3     # p*8
-    addu    $t2, $t1, $t2   # &data[i][p]
-    ldc1    $f4, 0($t2)     # $f4 = A[i][p]
-
-    # Load A[p][p] -> $f6
-    lw      $t0, 0($s0)
-    sll     $t1, $s4, 2     # p*4
-    addu    $t1, $t0, $t1   # &data[p]
-    lw      $t1, 0($t1)
-    sll     $t2, $s4, 3     # p*8
-    addu    $t2, $t1, $t2
-    ldc1    $f6, 0($t2)     # $f6 = A[p][p]
-
-    div.d   $f8, $f4, $f6   # $f8 = factor
-
-    # --- C?p nh?t b[i] -= factor * b[p] ---
-    # Load b[p] -> $f10
-    sll     $t0, $s4, 3
-    addu    $t0, $s1, $t0
-    ldc1    $f10, 0($t0)
-
-    mul.d   $f10, $f10, $f8 # factor * b[p]
-    
-    # Load b[i] -> $f16
-    sll     $t0, $s5, 3
-    addu    $t0, $s1, $t0
-    ldc1    $f16, 0($t0)
-
-    sub.d   $f16, $f16, $f10 # b[i] - ...
-    sdc1    $f16, 0($t0)     # L?u l?i b[i]
-
-    # --- Inner Loop j = p to n ---
-    move    $t8, $s4         # j = p (dùng t8 làm j)
-
-Loop_J:
-    slt     $t0, $t8, $s2    # if j < n
-    beq     $t0, $0, Loop_J_End
-
-    # A[i][j] -= factor * A[p][j]
-    
-    # Load A[p][j] -> $f10
-    lw      $t0, 0($s0)
-    sll     $t1, $s4, 2      # p*4
-    addu    $t1, $t0, $t1
-    lw      $t1, 0($t1)      # row p
-    sll     $t2, $t8, 3      # j*8
-    addu    $t2, $t1, $t2
-    ldc1    $f10, 0($t2)     # A[p][j]
-
-    mul.d   $f10, $f10, $f8  # factor * A[p][j]
-
-    # Load A[i][j] -> $f16
-    lw      $t0, 0($s0)
-    sll     $t1, $s5, 2      # i*4
-    addu    $t1, $t0, $t1
-    lw      $t1, 0($t1)      # row i
-    sll     $t2, $t8, 3      # j*8
-    addu    $t2, $t1, $t2
-    ldc1    $f16, 0($t2)     # A[i][j]
-
-    sub.d   $f16, $f16, $f10
-    sdc1    $f16, 0($t2)     # L?u A[i][j]
-
-    addi    $t8, $t8, 1      # j++
-    b       Loop_J
-    nop
-Loop_J_End:
-
-    addi    $s5, $s5, 1      # i++
-    b       Loop_I
-    nop
-Loop_I_End:
-
-    addi    $s4, $s4, 1      # p++
-    b       Loop_P
-    nop
-Loop_P_End:
-
-    # ==========================================
-    # PH?N B: TH? NG??C (BACK SUBSTITUTION)
-    # ==========================================
-    
-    # C?p phát m?ng k?t qu? x
+    move    $s0, $2
     sll     $4, $s2, 3
     jal     malloc
     nop
-    move    $s3, $2      # s3 = x
-
-    # Loop i ch?y t? n - 1 v? 0
-    addi    $s4, $s2, -1 # i = n - 1
-
-Loop_Back_I:
-    bltz    $s4, Loop_Back_End
-
-    # sum = 0.0
-    mtc1    $0, $f0
-    mtc1    $0, $f1      # f0 = 0.0 (double)
-
-    # Loop j = i + 1 ??n n
-    addi    $s5, $s4, 1  # j = i + 1
-
-Loop_Back_J:
-    slt     $t0, $s5, $s2 # if j < n
-    beq     $t0, $0, Loop_Back_J_End
-
-    # sum += A[i][j] * x[j]
-    
-    # Load A[i][j]
+    move    $s1, $2
+    move    $4, $s1
+    lw      $5, 132($fp)
+    sll     $6, $s2, 3
+    jal     memcpy
+    nop
+    li      $s4, 0
+Loop_P:
+    beq     $s4, $s2, Loop_P_End
+    addi    $s5, $s4, 1
+Loop_I:
+    slt     $t0, $s5, $s2
+    beq     $t0, $0, Loop_I_End
     lw      $t0, 0($s0)
-    sll     $t1, $s4, 2      # i*4
+    sll     $t1, $s5, 2
     addu    $t1, $t0, $t1
     lw      $t1, 0($t1)
-    sll     $t2, $s5, 3      # j*8
+    sll     $t2, $s4, 3
     addu    $t2, $t1, $t2
     ldc1    $f4, 0($t2)
-
-    # Load x[j]
-    sll     $t0, $s5, 3
-    addu    $t0, $s3, $t0
-    ldc1    $f6, 0($t0)
-
-    mul.d   $f4, $f4, $f6
-    add.d   $f0, $f0, $f4    # sum += ...
-
-    addi    $s5, $s5, 1
-    b       Loop_Back_J
-    nop
-Loop_Back_J_End:
-
-    # x[i] = (b[i] - sum) / A[i][i]
-    
-    # Load b[i]
-    sll     $t0, $s4, 3
-    addu    $t0, $s1, $t0
-    ldc1    $f4, 0($t0)
-
-    sub.d   $f4, $f4, $f0    # b[i] - sum
-
-    # Load A[i][i]
     lw      $t0, 0($s0)
     sll     $t1, $s4, 2
     addu    $t1, $t0, $t1
@@ -1099,28 +871,100 @@ Loop_Back_J_End:
     sll     $t2, $s4, 3
     addu    $t2, $t1, $t2
     ldc1    $f6, 0($t2)
-
-    div.d   $f4, $f4, $f6    # result
-    
-    # Store x[i]
+    div.d   $f8, $f4, $f6
+    sll     $t0, $s4, 3
+    addu    $t0, $s1, $t0
+    ldc1    $f10, 0($t0)
+    mul.d   $f10, $f10, $f8
+    sll     $t0, $s5, 3
+    addu    $t0, $s1, $t0
+    ldc1    $f16, 0($t0)
+    sub.d   $f16, $f16, $f10
+    sdc1    $f16, 0($t0)
+    move    $t8, $s4
+Loop_J:
+    slt     $t0, $t8, $s2
+    beq     $t0, $0, Loop_J_End
+    lw      $t0, 0($s0)
+    sll     $t1, $s4, 2
+    addu    $t1, $t0, $t1
+    lw      $t1, 0($t1)
+    sll     $t2, $t8, 3
+    addu    $t2, $t1, $t2
+    ldc1    $f10, 0($t2)
+    mul.d   $f10, $f10, $f8
+    lw      $t0, 0($s0)
+    sll     $t1, $s5, 2
+    addu    $t1, $t0, $t1
+    lw      $t1, 0($t1)
+    sll     $t2, $t8, 3
+    addu    $t2, $t1, $t2
+    ldc1    $f16, 0($t2)
+    sub.d   $f16, $f16, $f10
+    sdc1    $f16, 0($t2)
+    addi    $t8, $t8, 1
+    b       Loop_J
+    nop
+Loop_J_End:
+    addi    $s5, $s5, 1
+    b       Loop_I
+    nop
+Loop_I_End:
+    addi    $s4, $s4, 1
+    b       Loop_P
+    nop
+Loop_P_End:
+    sll     $4, $s2, 3
+    jal     malloc
+    nop
+    move    $s3, $2
+    addi    $s4, $s2, -1
+Loop_Back_I:
+    bltz    $s4, Loop_Back_End
+    mtc1    $0, $f0
+    mtc1    $0, $f1
+    addi    $s5, $s4, 1
+Loop_Back_J:
+    slt     $t0, $s5, $s2
+    beq     $t0, $0, Loop_Back_J_End
+    lw      $t0, 0($s0)
+    sll     $t1, $s4, 2
+    addu    $t1, $t0, $t1
+    lw      $t1, 0($t1)
+    sll     $t2, $s5, 3
+    addu    $t2, $t1, $t2
+    ldc1    $f4, 0($t2)
+    sll     $t0, $s5, 3
+    addu    $t0, $s3, $t0
+    ldc1    $f6, 0($t0)
+    mul.d   $f4, $f4, $f6
+    add.d   $f0, $f0, $f4
+    addi    $s5, $s5, 1
+    b       Loop_Back_J
+    nop
+Loop_Back_J_End:
+    sll     $t0, $s4, 3
+    addu    $t0, $s1, $t0
+    ldc1    $f4, 0($t0)
+    sub.d   $f4, $f4, $f0
+    lw      $t0, 0($s0)
+    sll     $t1, $s4, 2
+    addu    $t1, $t0, $t1
+    lw      $t1, 0($t1)
+    sll     $t2, $s4, 3
+    addu    $t2, $t1, $t2
+    ldc1    $f6, 0($t2)
+    div.d   $f4, $f4, $f6
     sll     $t0, $s4, 3
     addu    $t0, $s3, $t0
     sdc1    $f4, 0($t0)
-
     addi    $s4, $s4, -1
     b       Loop_Back_I
     nop
-
 Loop_Back_End:
-
-    # Tr? v? kích th??c m?ng (size = n)
-    lw      $t0, 140($sp)    # size ptr
-    sw      $s2, 0($t0)      # *size = n
-
-    # Return x (con tr? m?ng k?t qu?)
+    lw      $t0, 140($sp)
+    sw      $s2, 0($t0)
     move    $2, $s3
-
-    # Khôi ph?c thanh ghi và stack
     lw      $s5, 96($sp)
     lw      $s4, 100($sp)
     lw      $s3, 104($sp)
@@ -1132,85 +976,60 @@ Loop_Back_End:
     addiu   $sp, $sp, 128
     jr      $31
     nop
-
+    
 apply_filter:
     addiu   $sp, $sp, -80
     sw      $31, 76($sp)
     sw      $fp, 72($sp)
-    sw      $s0, 68($sp) # x
-    sw      $s1, 64($sp) # h
-    sw      $s2, 60($sp) # N
-    sw      $s3, 56($sp) # M
-    sw      $s4, 52($sp) # y (output)
+    sw      $s0, 68($sp)
+    sw      $s1, 64($sp)
+    sw      $s2, 60($sp)
+    sw      $s3, 56($sp)
+    sw      $s4, 52($sp)
     move    $fp, $sp
-
-    move    $s0, $4
-    move    $s1, $5
-    move    $s2, $6
-    move    $s3, $7
-
-    # y = malloc(N * 8)
+    move    $s0, $4 # x
+    move    $s1, $5 # h
+    move    $s2, $6 # N
+    move    $s3, $7 # M
     sll     $4, $s2, 3
     jal     malloc
     nop
     move    $s4, $2
-
-    # Set output size
-    lw      $t0, 96($sp) # Arg 5
+    lw      $t0, 96($sp)
     sw      $s2, 0($t0)
-
-    # Loop n=0 to N
-    li      $t0, 0       # n
+    li      $t0, 0
 Loop_AF_N:
     beq     $t0, $s2, Loop_AF_N_End
-
     mtc1    $0, $f0
-    mtc1    $0, $f1      # y[n] = 0.0
-
-    # Loop k=0 to M
-    li      $t1, 0       # k
+    mtc1    $0, $f1
+    li      $t1, 0
 Loop_AF_K:
     beq     $t1, $s3, Loop_AF_K_End
-
-    # idx = n - k
     subu    $t2, $t0, $t1
-
-    # if (idx >= 0 && idx < N)
     bltz    $t2, Skip_AF
     slt     $t3, $t2, $s2
     beq     $t3, $0, Skip_AF
-
-    # h[k]
     sll     $t4, $t1, 3
     addu    $t4, $s1, $t4
     ldc1    $f4, 0($t4)
-
-    # x[idx]
     sll     $t5, $t2, 3
     addu    $t5, $s0, $t5
     ldc1    $f6, 0($t5)
-
     mul.d   $f4, $f4, $f6
     add.d   $f0, $f0, $f4
-
 Skip_AF:
     addi    $t1, $t1, 1
     b       Loop_AF_K
     nop
 Loop_AF_K_End:
-
-    # Store y[n]
     sll     $t4, $t0, 3
     addu    $t4, $s4, $t4
     sdc1    $f0, 0($t4)
-
     addi    $t0, $t0, 1
     b       Loop_AF_N
     nop
 Loop_AF_N_End:
-
     move    $2, $s4
-
     lw      $s4, 52($sp)
     lw      $s3, 56($sp)
     lw      $s2, 60($sp)
@@ -1223,65 +1042,43 @@ Loop_AF_N_End:
     nop
     
 calculate_mmse:
-        addiu   $sp,$sp,-56
-        sw      $31,52($sp)
-        sw      $fp,48($sp)
-        move    $fp,$sp
-        sw      $4,56($fp)
-        sw      $5,60($fp)
-        sw      $6,64($fp)
-        sw      $0,24($fp)
-        sw      $0,28($fp)
-        sw      $0,32($fp)
-L_mm:
-        lw      $2,32($fp)
-        sll     $2,$2,3
-        lw      $3,56($fp)
-        addu    $3,$3,$2
-        lw      $5,4($3)
-        lw      $4,0($3)
-        lw      $3,60($fp)
-        addu    $3,$3,$2
-        lw      $7,4($3)
-        lw      $6,0($3)
-        jal     __subdf3
-        nop
-        move    $4,$2
-        move    $5,$3
-        move    $6,$2
-        move    $7,$3
-        jal     __muldf3
-        nop
-        move    $6,$2
-        move    $7,$3
-        lw      $5,28($fp)
-        lw      $4,24($fp)
-        jal     __adddf3
-        nop
-        sw      $3,28($fp)
-        sw      $2,24($fp)
-        lw      $2,32($fp)
-        addiu   $2,$2,1
-        sw      $2,32($fp)
-        lw      $3,32($fp)
-        lw      $2,64($fp)
-        slt     $2,$3,$2
-        bne     $2,$0,L_mm
-        nop
-        
-        lw      $4,64($fp)
-        jal     __floatsidf
-        nop
-        move    $6,$2
-        move    $7,$3
-        lw      $5,28($fp)
-        lw      $4,24($fp)
-        jal     __divdf3
-        nop
-        
-        move    $sp,$fp
-        lw      $31,52($sp)
-        lw      $fp,48($sp)
-        addiu   $sp,$sp,56
-        jr      $31
-        nop
+    addiu   $sp, $sp, -64
+    sw      $31, 60($sp)
+    sw      $fp, 56($sp)
+    sw      $s0, 52($sp)
+    sw      $s1, 48($sp)
+    sw      $s2, 44($sp)
+    move    $fp, $sp
+    move    $s0, $4 # desired
+    move    $s1, $5 # output
+    move    $s2, $6 # size
+    mtc1    $0, $f0
+    mtc1    $0, $f1
+    li      $t0, 0
+Loop_MMSE:
+    beq     $t0, $s2, Loop_MMSE_End
+    sll     $t1, $t0, 3
+    addu    $t2, $s0, $t1
+    ldc1    $f4, 0($t2)
+    addu    $t2, $s1, $t1
+    ldc1    $f6, 0($t2)
+    sub.d   $f4, $f4, $f6
+    mul.d   $f4, $f4, $f4
+    add.d   $f0, $f0, $f4
+    addi    $t0, $t0, 1
+    b       Loop_MMSE
+    nop
+Loop_MMSE_End:
+    mtc1    $s2, $f4
+    cvt.d.w $f4, $f4
+    div.d   $f0, $f0, $f4
+    mfc1    $2, $f0
+    mfc1    $3, $f1
+    lw      $s2, 44($sp)
+    lw      $s1, 48($sp)
+    lw      $s0, 52($sp)
+    lw      $fp, 56($sp)
+    lw      $31, 60($sp)
+    addiu   $sp, $sp, 64
+    jr      $31
+    nop
