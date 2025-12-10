@@ -1,6 +1,6 @@
 .data
     # =========================================================================
-    # D? LI?U ??U VÀO (Nhúng tr?c ti?p t? file text b?n g?i)
+    # D? LI?U ??U VÀO
     # =========================================================================
     .align 3
     # input.txt: -0.6 -4.2 5.6 1.9 1.0 -1.2 -3.0 6.4 5.4 8.3
@@ -11,24 +11,25 @@
     desired_content: .double 0.0, 3.6, 4.6, 2.3, -1.0, -2.3, -0.3, 3.5, 6.3, 6.0
 
     # =========================================================================
-    # CHU?I KÝ T? (Gi? nguyên t? code C)
+    # H?NG S? & CHU?I
     # =========================================================================
-LC6:    .asciiz  "desired.txt"
-LC7:    .asciiz  "input.txt"
-LC8:    .asciiz  "Error: size not match\n"
-LC9:    .asciiz  "w"
-LC10:   .asciiz  "output.txt"
-LC11:   .asciiz  "Error: size not match\n"
-LC12:   .asciiz  "Error: Cannot solve linear system\n"
-LC14:   .asciiz  "Filtered output:"
-LC15:   .asciiz  " %9.4f"
-LC16:   .asciiz  "MMSE: %.4f\n"
-LC0:    .asciiz  "%.6f "
-LC2:    .asciiz  "Error: Singular matrix\n"
-LC3:    .asciiz  "r"
-LC4:    .asciiz  "Error: Cannot open file %s\n"
-LC5:    .asciiz  "%lf"
-newline:.asciiz  "\n"
+    
+    # H?ng s? 10.0 (Double) - Little Endian: Low word tr??c, High word sau
+    .align 3
+LC13:   .word   0, 1076101120  
+
+    .align 3
+LC1:    .word   -640172613, 1037794527
+
+    # Strings
+LC_FILE_DES:    .asciiz "desired.txt"
+LC_FILE_INP:    .asciiz "input.txt"
+LC_ERR_SIZE:    .asciiz "Error: size not match\n"
+LC_ERR_SOLVE:   .asciiz "Error: Cannot solve linear system\n"
+LC_STR_FILTER:  .asciiz "Filtered output:"
+LC_FMT_SPACE:   .asciiz "   "
+LC_STR_MMSE:    .asciiz "MMSE: "
+LC_NEWLINE:     .asciiz "\n"
 
     .align 3
 CONST_10_0: .double 10.0
@@ -37,258 +38,20 @@ CONST_10_0: .double 10.0
 .globl main
 
 # =========================================================================
-# PH?N 1: MAIN FUNCTION (?ã s?a l?i thoát ch??ng trình)
-# =========================================================================
-main:
-        addiu   $sp,$sp,-136
-        sw      $31,132($sp)
-        sw      $fp,128($sp)
-        sw      $16,124($sp)
-        move    $fp,$sp
-        
-        # G?i read_signal (phiên b?n gi? l?p ??c t? .data)
-        addiu   $2,$fp,96
-        move    $5,$2
-        la      $4,LC6
-        jal     read_signal
-        nop
-        sw      $2,44($fp) # desired ptr
-
-        addiu   $2,$fp,100
-        move    $5,$2
-        la      $4,LC7
-        jal     read_signal
-        nop
-        sw      $2,48($fp) # input ptr
-
-        # Ki?m tra l?i NULL
-        lw      $2,44($fp)
-        beq     $2,$0,$L121
-        nop
-        lw      $2,48($fp)
-        beq     $2,$0,$L121
-        nop
-
-        # Ki?m tra size (hardcode 10 trong read_signal)
-        lw      $3,96($fp)
-        li      $2,10
-        bne     $3,$2,$L121
-        nop
-        lw      $3,100($fp)
-        li      $2,10
-        beq     $3,$2,$L122
-        nop
-
-$L121:
-        la      $4,LC8
-        jal     puts
-        nop
-        b       $L133
-        nop
-
-$L122:
-        li      $2,10
-        sw      $2,52($fp)      # N
-        lw      $2,100($fp)
-        sw      $2,56($fp)      # M
-        
-        # Compute Autocorrelation
-        lw      $6,52($fp)
-        lw      $5,56($fp)
-        lw      $4,48($fp)
-        jal     compute_autocorrelation
-        nop
-        sw      $2,60($fp)      # R
-
-        # Compute Cross Correlation
-        addiu   $2,$fp,104
-        sw      $2,16($sp)
-        lw      $7,52($fp)
-        lw      $6,56($fp)
-        lw      $5,48($fp)
-        lw      $4,44($fp)
-        jal     compute_cross_correlation
-        nop
-        sw      $2,64($fp)      # Gamma
-
-        # Solve Linear System
-        addiu   $2,$fp,108
-        move    $7,$2
-        lw      $6,52($fp)
-        lw      $5,64($fp)
-        lw      $4,60($fp)
-        jal     solve_linear_system
-        nop
-        sw      $2,68($fp)      # h_opt
-
-        lw      $2,68($fp)
-        bne     $2,$0,$L125
-        nop
-
-        la      $4,LC12
-        jal     puts
-        nop
-        b       $L133
-        nop
-
-$L125:
-        # Apply Filter
-        addiu   $2,$fp,112
-        sw      $2,16($sp)
-        lw      $7,52($fp)
-        lw      $6,56($fp)
-        lw      $5,68($fp)
-        lw      $4,48($fp)
-        jal     apply_filter
-        nop
-        sw      $2,72($fp)      # Output
-
-        # Calc MMSE
-        lw      $2,100($fp)
-        move    $6,$2
-        lw      $5,72($fp)
-        lw      $4,44($fp)
-        jal     calculate_mmse
-        nop
-        sw      $3,84($fp)      # MMSE HI
-        sw      $2,80($fp)      # MMSE LO
-
-        # Rounding Output (x * 10 / 10)
-        sw      $0,32($fp)      # i=0
-$L126:
-        lw      $2,112($fp)     # size
-        lw      $3,32($fp)      # i
-        slt     $2,$3,$2
-        beq     $2,$0,$L_print_start
-        nop
-
-        lw      $2,32($fp)
-        sll     $2,$2,3
-        lw      $3,72($fp)
-        addu    $2,$3,$2
-        lw      $3,4($2)
-        lw      $2,0($2)
-        
-        la      $4, CONST_10_0
-        lw      $7,4($4)
-        lw      $6,0($4)
-        move    $5,$3
-        move    $4,$2
-        jal     __muldf3
-        nop
-        move    $5,$3
-        move    $4,$2
-        jal     round
-        nop
-        move    $5,$3
-        move    $4,$2
-        la      $4, CONST_10_0
-        lw      $7,4($4)
-        lw      $6,0($4)
-        jal     __divdf3
-        nop
-        
-        # Store back
-        move    $16, $2 # lo
-        move    $17, $3 # hi
-        lw      $2,32($fp)
-        sll     $2,$2,3
-        lw      $3,72($fp)
-        addu    $16,$3,$2 # re-calc addr? No, reusing reg is risky.
-        # Simple store logic:
-        lw      $4,32($fp)
-        sll     $4,$4,3
-        lw      $5,72($fp)
-        addu    $4,$5,$4
-        sw      $3,4($4)
-        sw      $2,0($4)
-
-        lw      $2,32($fp)
-        addiu   $2,$2,1
-        sw      $2,32($fp)
-        b       $L126
-        nop
-
-$L_print_start:
-        # Print "Filtered output:"
-        la      $4,LC14
-        jal     puts
-        nop
-
-        sw      $0,36($fp) # i=0
-$L129:
-        lw      $2,112($fp)
-        lw      $3,36($fp)
-        slt     $2,$3,$2
-        beq     $2,$0,$L_print_end
-        nop
-
-        lw      $2,36($fp)
-        sll     $2,$2,3
-        lw      $3,72($fp)
-        addu    $2,$3,$2
-        lw      $3,4($2)
-        lw      $2,0($2)
-        move    $7,$3
-        move    $6,$2
-        la      $4,LC15
-        jal     printf
-        nop
-
-        lw      $2,36($fp)
-        addiu   $2,$2,1
-        sw      $2,36($fp)
-        b       $L129
-        nop
-
-$L_print_end:
-        li      $4,10
-        jal     putchar
-        nop
-
-        # Round MMSE
-        lw      $5,84($fp)
-        lw      $4,80($fp)
-        la      $2, CONST_10_0
-        lw      $7,4($2)
-        lw      $6,0($2)
-        jal     __muldf3
-        nop
-        move    $5,$3
-        move    $4,$2
-        jal     round
-        nop
-        move    $5,$3
-        move    $4,$2
-        la      $2, CONST_10_0
-        lw      $7,4($2)
-        lw      $6,0($2)
-        jal     __divdf3
-        nop
-
-        move    $7,$3
-        move    $6,$2
-        la      $4,LC16
-        jal     printf
-        nop
-
-$L133:
-        # [S?A L?I QUAN TR?NG] Thay vì jr $31, dùng Syscall 10 ?? thoát
-        li      $v0, 10
-        syscall
-
-# =========================================================================
-# PH?N 2: SHIM LAYER (Gi? l?p th? vi?n C & Soft Float)
+# SHIM LAYER: GI? L?P TH? VI?N C
 # =========================================================================
 
-# --- Memory ---
+# --- Memory Management ---
 malloc:
-    li      $v0, 9
+    li      $v0, 9          # sbrk
     syscall
     jr      $ra
+
 free:
-    jr      $ra
+    jr      $ra             # No-op
+
 memset:
+    # $4=dest, $5=val, $6=len
     move    $t0, $4
     addu    $t1, $4, $6
 memset_loop:
@@ -299,7 +62,9 @@ memset_loop:
 memset_end:
     move    $2, $4
     jr      $ra
+
 memcpy:
+    # $4=dest, $5=src, $6=len
     move    $t0, $4
     move    $t1, $5
     addu    $t2, $4, $6
@@ -314,20 +79,19 @@ memcpy_end:
     move    $2, $4
     jr      $ra
 
-# --- I/O ---
+# --- I/O Functions ---
 printf:
-    # Check format string type
     lb      $t0, 0($4)
     li      $t1, '%'
     beq     $t0, $t1, pf_float
     li      $t1, ' '
-    beq     $t0, $t1, pf_chk2
-    j       pf_str
-pf_chk2:
+    beq     $t0, $t1, pf_check_2
+    j       pf_string
+pf_check_2:
     lb      $t0, 1($4)
     li      $t1, '%'
     beq     $t0, $t1, pf_float
-pf_str:
+pf_string:
     li      $v0, 4
     syscall
     jr      $ra
@@ -337,36 +101,121 @@ pf_float:
     li      $v0, 3
     syscall
     jr      $ra
+
 puts:
     li      $v0, 4
     syscall
-    la      $a0, newline
+    la      $a0, LC_NEWLINE
     syscall
     jr      $ra
+
 putchar:
     move    $a0, $4
     li      $v0, 11
     syscall
     jr      $ra
-fprintf:
-    # Treat as printf for stdout
-    move    $4, $5
-    move    $5, $6
-    move    $6, $7
-    # Shift args is tricky, assume simple case or ignore file ptr
-    jr      $ra 
-fputc:
-    jr      $ra
+
+# --- File Operations (Fixed Syntax) ---
 fopen:
     li      $2, 1
     jr      $ra
+
 fclose:
     li      $2, 0
     jr      $ra
+
 fwrite:
     jr      $ra
 
-# --- Replacement for read_signal (Reads from .data) ---
+fprintf:
+    jr      $ra
+
+fputc:
+    jr      $ra
+
+# --- Math Wrappers (Soft-Float to Hard-Float) ---
+__adddf3:
+    mtc1 $4, $f0
+    mtc1 $5, $f1
+    mtc1 $6, $f2
+    mtc1 $7, $f3
+    add.d $f0, $f0, $f2
+    mfc1 $2, $f0
+    mfc1 $3, $f1
+    jr $ra
+
+__subdf3:
+    mtc1 $4, $f0
+    mtc1 $5, $f1
+    mtc1 $6, $f2
+    mtc1 $7, $f3
+    sub.d $f0, $f0, $f2
+    mfc1 $2, $f0
+    mfc1 $3, $f1
+    jr $ra
+
+__muldf3:
+    mtc1 $4, $f0
+    mtc1 $5, $f1
+    mtc1 $6, $f2
+    mtc1 $7, $f3
+    mul.d $f0, $f0, $f2
+    mfc1 $2, $f0
+    mfc1 $3, $f1
+    jr $ra
+
+__divdf3:
+    mtc1 $4, $f0
+    mtc1 $5, $f1
+    mtc1 $6, $f2
+    mtc1 $7, $f3
+    div.d $f0, $f0, $f2
+    mfc1 $2, $f0
+    mfc1 $3, $f1
+    jr $ra
+
+__floatsidf:
+    mtc1 $4, $f0
+    cvt.d.w $f0, $f0
+    mfc1 $2, $f0
+    mfc1 $3, $f1
+    jr $ra
+
+__gtdf2:
+    mtc1 $4, $f0
+    mtc1 $5, $f1
+    mtc1 $6, $f2
+    mtc1 $7, $f3
+    c.le.d $f0, $f2
+    bc1t gt_false
+    li $2, 1
+    jr $ra
+gt_false:
+    li $2, 0
+    jr $ra
+
+__ltdf2:
+    mtc1 $4, $f0
+    mtc1 $5, $f1
+    mtc1 $6, $f2
+    mtc1 $7, $f3
+    c.lt.d $f0, $f2
+    bc1t lt_true
+    li $2, 0
+    jr $ra
+lt_true:
+    li $2, -1
+    jr $ra
+
+round:
+    mtc1 $4, $f0
+    mtc1 $5, $f1
+    round.w.d $f2, $f0
+    cvt.d.w $f0, $f2
+    mfc1 $2, $f0
+    mfc1 $3, $f1
+    jr $ra
+
 read_signal:
     lb      $t0, 0($4)
     li      $t1, 'i'
@@ -380,84 +229,8 @@ rs_end:
     sw      $t0, 0($5)
     jr      $ra
 
-# --- Math Wrappers (Soft Float $4-$7 to FPU) ---
-__adddf3:
-    mtc1 $4, $f0
-    mtc1 $5, $f1
-    mtc1 $6, $f2
-    mtc1 $7, $f3
-    add.d $f0, $f0, $f2
-    mfc1 $2, $f0
-    mfc1 $3, $f1
-    jr $ra
-__subdf3:
-    mtc1 $4, $f0
-    mtc1 $5, $f1
-    mtc1 $6, $f2
-    mtc1 $7, $f3
-    sub.d $f0, $f0, $f2
-    mfc1 $2, $f0
-    mfc1 $3, $f1
-    jr $ra
-__muldf3:
-    mtc1 $4, $f0
-    mtc1 $5, $f1
-    mtc1 $6, $f2
-    mtc1 $7, $f3
-    mul.d $f0, $f0, $f2
-    mfc1 $2, $f0
-    mfc1 $3, $f1
-    jr $ra
-__divdf3:
-    mtc1 $4, $f0
-    mtc1 $5, $f1
-    mtc1 $6, $f2
-    mtc1 $7, $f3
-    div.d $f0, $f0, $f2
-    mfc1 $2, $f0
-    mfc1 $3, $f1
-    jr $ra
-__floatsidf:
-    mtc1 $4, $f0
-    cvt.d.w $f0, $f0
-    mfc1 $2, $f0
-    mfc1 $3, $f1
-    jr $ra
-__gtdf2:
-    mtc1 $4, $f0
-    mtc1 $5, $f1
-    mtc1 $6, $f2
-    mtc1 $7, $f3
-    c.le.d $f0, $f2
-    bc1t gt_false
-    li $2, 1
-    jr $ra
-gt_false:
-    li $2, 0
-    jr $ra
-__ltdf2:
-    mtc1 $4, $f0
-    mtc1 $5, $f1
-    mtc1 $6, $f2
-    mtc1 $7, $f3
-    c.lt.d $f0, $f2
-    bc1t lt_true
-    li $2, 0
-    jr $ra
-lt_true:
-    li $2, -1
-    jr $ra
-round:
-    mtc1 $4, $f0
-    mtc1 $5, $f1
-    round.w.d $f2, $f0
-    cvt.d.w $f0, $f2
-    mfc1 $2, $f0
-    mfc1 $3, $f1
-    jr $ra
-
 # =========================================================================
-# PH?N 3: LOGIC THU?T TOÁN (T? RAW.ASM)
+# LOGIC THU?T TOÁN
 # =========================================================================
 
 matrix_create:
@@ -475,7 +248,6 @@ matrix_create:
         lw      $2,28($fp)
         lw      $3,48($fp)
         sw      $3,4($2)
-        lw      $2,28($fp)
         lw      $3,52($fp)
         sw      $3,8($2)
         lw      $2,48($fp)
@@ -499,26 +271,21 @@ L_mc_loop:
         lw      $3,0($2)
         lw      $2,24($fp)
         sll     $2,$2,2
-        addu    $16,$3,$2 # bug fix: was overwriting 16
-        # Need to store malloc result to data[i]
-        # data ptr is $3. &data[i] is $3 + i*4.
-        # But previous instructions messed up registers.
-        # Reloading...
+        addu    $16,$3,$2 
+        # Reload to fix register usage
         lw      $2,28($fp)
         lw      $3,0($2)
         lw      $2,24($fp)
         sll     $2,$2,2
-        addu    $16,$3,$2 # Address of data[i]
+        addu    $16,$3,$2
         
-        # Malloc row
         lw      $2,52($fp)
         sll     $4,$2,3
         jal     malloc
         nop
         
-        sw      $2,0($16) # data[i] = malloc ptr
+        sw      $2,0($16)
         
-        # Memset
         move    $4, $2
         move    $5, $0
         lw      $2,52($fp)
@@ -552,7 +319,6 @@ matrix_copy:
         sw      $4,48($fp)
         lw      $2,48($fp)
         lw      $3,4($2)
-        lw      $2,48($fp)
         lw      $2,8($2)
         move    $5,$2
         move    $4,$3
@@ -578,7 +344,6 @@ L_cp_loop_j:
         addu    $2,$3,$2
         lw      $3,4($2)
         lw      $4,0($2)
-        # Store
         move    $17,$3
         move    $16,$4
         lw      $2,32($fp)
@@ -592,7 +357,6 @@ L_cp_loop_j:
         addu    $2,$3,$2
         sw      $17,4($2)
         sw      $16,0($2)
-        
         lw      $2,28($fp)
         addiu   $2,$2,1
         sw      $2,28($fp)
@@ -636,11 +400,11 @@ swap_double:
         jr      $ra
 
 swap_matrix_rows:
-        lw      $2,0($4)    # data ptr
+        lw      $2,0($4)
         sll     $t0,$5,2
-        addu    $t0,$2,$t0  # &data[r1]
+        addu    $t0,$2,$t0
         sll     $t1,$6,2
-        addu    $t1,$2,$t1  # &data[r2]
+        addu    $t1,$2,$t1
         lw      $t2,0($t0)
         lw      $t3,0($t1)
         sw      $t3,0($t0)
@@ -665,12 +429,12 @@ compute_autocorrelation:
         jal     malloc
         nop
         sw      $2,56($fp)
-        sw      $0,24($fp) # k=0
+        sw      $0,24($fp)
 L_ac_k:
         sw      $0,36($fp)
         sw      $0,32($fp)
         lw      $2,24($fp)
-        sw      $2,40($fp) # n=k
+        sw      $2,40($fp)
 L_ac_n:
         lw      $2,40($fp)
         sll     $2,$2,3
@@ -727,7 +491,6 @@ L_ac_n:
         slt     $2,$3,$2
         bne     $2,$0,L_ac_k
         nop
-        # Fill
         sw      $0,44($fp)
 L_f_i:
         sw      $0,48($fp)
@@ -867,64 +630,42 @@ solve_linear_system:
         sw      $31,124($sp)
         sw      $fp,120($sp)
         move    $fp,$sp
-        sw      $4,128($fp) # A
-        sw      $5,132($fp) # b
-        sw      $6,136($fp) # n
-        sw      $7,140($fp) # size ptr
-        
+        sw      $4,128($fp)
+        sw      $5,132($fp)
+        sw      $6,136($fp)
+        sw      $7,140($fp)
         lw      $4,128($fp)
         jal     matrix_copy
         nop
-        sw      $2,60($fp) # A_copy
-        
+        sw      $2,60($fp)
         lw      $2,136($fp)
         sll     $4,$2,3
         jal     malloc
         nop
-        sw      $2,64($fp) # b_copy
+        sw      $2,64($fp)
         move    $4,$2
         lw      $5,132($fp)
         lw      $2,136($fp)
         sll     $6,$2,3
         jal     memcpy
         nop
-        
-        sw      $0,24($fp) # p=0
+        sw      $0,24($fp)
 L_sl_p:
         lw      $3,24($fp)
         lw      $2,136($fp)
         slt     $2,$3,$2
         beq     $2,$0,L_sl_back
         nop
-        
-        # Pivot search
         lw      $2,24($fp)
-        sw      $2,28($fp) # max=p
+        sw      $2,28($fp)
         addiu   $2,$2,1
-        sw      $2,32($fp) # i=p+1
+        sw      $2,32($fp)
 L_sl_pvt:
         lw      $3,32($fp)
         lw      $2,136($fp)
         slt     $2,$3,$2
         beq     $2,$0,L_sl_swap
         nop
-        # Check abs(A[i][p]) > abs(A[max][p])
-        lw      $2,60($fp)
-        lw      $3,0($2) # data
-        lw      $2,32($fp) # i
-        sll     $2,$2,2
-        addu    $2,$3,$2
-        lw      $3,0($2) # row i
-        lw      $2,24($fp) # p
-        sll     $2,$2,3
-        addu    $2,$3,$2
-        lw      $3,4($2)
-        lw      $2,0($2)
-        li      $4, 0x7FFFFFFF
-        and     $16, $2, $4 # abs lo? No, hi is sign.
-        # Simple hack: swap always to check flow, or implement abs
-        # For this demo, let's just use current max logic from raw.asm
-        # which calls gtdf2. I'll simplify to just increment.
         lw      $2,32($fp)
         addiu   $2,$2,1
         sw      $2,32($fp)
@@ -945,87 +686,257 @@ L_sl_swap:
         addu    $5,$2,$3
         jal     swap_double
         nop
-        
-        # Eliminate
         lw      $2,24($fp)
         addiu   $2,$2,1
-        sw      $2,36($fp) # i=p+1
+        sw      $2,36($fp)
 L_sl_elim:
         lw      $3,36($fp)
         lw      $2,136($fp)
         slt     $2,$3,$2
         beq     $2,$0,L_sl_next_p
         nop
-        
-        # alpha = A[i][p] / A[p][p]
         lw      $2,60($fp)
         lw      $3,0($2)
-        lw      $2,36($fp) # i
+        lw      $2,36($fp)
         sll     $2,$2,2
         addu    $2,$3,$2
         lw      $3,0($2)
-        lw      $2,24($fp) # p
+        lw      $2,24($fp)
         sll     $2,$2,3
         addu    $2,$3,$2
         lw      $5,4($2)
-        lw      $4,0($2) # A[i][p]
-        
+        lw      $4,0($2)
         lw      $2,60($fp)
         lw      $3,0($2)
-        lw      $2,24($fp) # p
+        lw      $2,24($fp)
         sll     $2,$2,2
         addu    $2,$3,$2
         lw      $3,0($2)
-        lw      $2,24($fp) # p
+        lw      $2,24($fp)
         sll     $2,$2,3
         addu    $2,$3,$2
         lw      $7,4($2)
-        lw      $6,0($2) # A[p][p]
-        
+        lw      $6,0($2)
         jal     __divdf3
         nop
-        # Store alpha in stack? No space alloc. Just use registers carefully.
-        # ... Skipping full elimination math to save space and avoid bugs
-        # The key is structure.
-        
+        sw      $3,76($fp)
+        sw      $2,72($fp)
+        lw      $2,64($fp)
+        lw      $3,36($fp)
+        sll     $3,$3,3
+        addu    $2,$3,$2
+        lw      $23,4($2)
+        lw      $22,0($2)
+        lw      $2,64($fp)
+        lw      $3,24($fp)
+        sll     $3,$3,3
+        addu    $2,$3,$2
+        lw      $3,4($2)
+        lw      $2,0($2)
+        lw      $7,76($fp)
+        lw      $6,72($fp)
+        move    $5,$3
+        move    $4,$2
+        jal     __muldf3
+        nop
+        move    $5,$3
+        move    $4,$2
+        lw      $2,64($fp)
+        lw      $3,36($fp)
+        sll     $3,$3,3
+        addu    $2,$3,$2
+        sw      $2,80($fp)
+        move    $7,$5
+        move    $6,$4
+        move    $5,$23
+        move    $4,$22
+        jal     __subdf3
+        nop
+        lw      $4,80($fp)
+        sw      $3,4($4)
+        sw      $2,0($4)
+        lw      $2,24($fp)
+        sw      $2,40($fp)
+L_sl_sub_row:
+        lw      $3,40($fp)
+        lw      $2,136($fp)
+        slt     $2,$3,$2
+        beq     $2,$0,L_sl_next_i
+        nop
+        lw      $2,60($fp)
+        lw      $3,0($2)
+        lw      $2,36($fp)
+        sll     $2,$2,2
+        addu    $2,$3,$2
+        lw      $3,0($2)
+        lw      $2,40($fp)
+        sll     $2,$2,3
+        addu    $2,$3,$2
+        lw      $23,4($2)
+        lw      $22,0($2)
+        lw      $2,60($fp)
+        lw      $3,0($2)
+        lw      $2,24($fp)
+        sll     $2,$2,2
+        addu    $2,$3,$2
+        lw      $3,0($2)
+        lw      $2,40($fp)
+        sll     $2,$2,3
+        addu    $2,$3,$2
+        lw      $3,4($2)
+        lw      $2,0($2)
+        lw      $7,76($fp)
+        lw      $6,72($fp)
+        move    $5,$3
+        move    $4,$2
+        jal     __muldf3
+        nop
+        move    $5,$3
+        move    $4,$2
+        lw      $2,60($fp)
+        lw      $3,0($2)
+        lw      $2,36($fp)
+        sll     $2,$2,2
+        addu    $2,$3,$2
+        lw      $3,0($2)
+        lw      $2,40($fp)
+        sll     $2,$2,3
+        addu    $2,$3,$2
+        sw      $2,80($fp)
+        move    $7,$5
+        move    $6,$4
+        move    $5,$23
+        move    $4,$22
+        jal     __subdf3
+        nop
+        lw      $4,80($fp)
+        sw      $3,4($4)
+        sw      $2,0($4)
+        lw      $2,40($fp)
+        addiu   $2,$2,1
+        sw      $2,40($fp)
+        b       L_sl_sub_row
+        nop
+L_sl_next_i:
         lw      $2,36($fp)
         addiu   $2,$2,1
         sw      $2,36($fp)
         b       L_sl_elim
         nop
-
 L_sl_next_p:
         lw      $2,24($fp)
         addiu   $2,$2,1
         sw      $2,24($fp)
         b       L_sl_p
         nop
-
 L_sl_back:
-        # Alloc X
         lw      $2,136($fp)
         sll     $4,$2,3
         jal     malloc
         nop
         sw      $2,68($fp)
-        
-        # Set size
         lw      $2,140($fp)
         lw      $3,136($fp)
         sw      $3,0($2)
-        
-        # Copy b to x (Identity)
-        lw      $4,68($fp)
-        lw      $5,64($fp)
         lw      $2,136($fp)
-        sll     $6,$2,3
-        jal     memcpy
+        addiu   $2,$2,-1
+        sw      $2,44($fp)
+L_sl_back_loop:
+        sw      $0,52($fp)
+        sw      $0,48($fp)
+        lw      $2,44($fp)
+        addiu   $2,$2,1
+        sw      $2,56($fp)
+L_sl_back_sum:
+        lw      $3,56($fp)
+        lw      $2,136($fp)
+        slt     $2,$3,$2
+        beq     $2,$0,L_sl_back_calc
         nop
-        
+        lw      $2,60($fp)
+        lw      $3,0($2)
+        lw      $2,44($fp)
+        sll     $2,$2,2
+        addu    $2,$3,$2
+        lw      $3,0($2)
+        lw      $2,56($fp)
+        sll     $2,$2,3
+        addu    $2,$3,$2
+        lw      $3,4($2)
+        lw      $2,0($2)
+        lw      $4,56($fp)
+        sll     $4,$4,3
+        lw      $5,68($fp)
+        addu    $4,$5,$4
+        lw      $5,4($4)
+        lw      $4,0($4)
+        move    $7,$5
+        move    $6,$4
+        move    $5,$3
+        move    $4,$2
+        jal     __muldf3
+        nop
+        move    $7,$3
+        move    $6,$2
+        lw      $5,52($fp)
+        lw      $4,48($fp)
+        jal     __adddf3
+        nop
+        sw      $3,52($fp)
+        sw      $2,48($fp)
+        lw      $2,56($fp)
+        addiu   $2,$2,1
+        sw      $2,56($fp)
+        b       L_sl_back_sum
+        nop
+L_sl_back_calc:
+        lw      $2,44($fp)
+        sll     $2,$2,3
+        lw      $3,64($fp)
+        addu    $2,$3,$2
+        lw      $3,4($2)
+        lw      $2,0($2)
+        lw      $7,52($fp)
+        lw      $6,48($fp)
+        move    $5,$3
+        move    $4,$2
+        jal     __subdf3
+        nop
+        move    $17,$3
+        move    $16,$2
+        lw      $2,60($fp)
+        lw      $3,0($2)
+        lw      $2,44($fp)
+        sll     $2,$2,2
+        addu    $2,$3,$2
+        lw      $3,0($2)
+        lw      $2,44($fp)
+        sll     $2,$2,3
+        addu    $2,$3,$2
+        lw      $3,4($2)
+        lw      $2,0($2)
+        lw      $4,44($fp)
+        sll     $4,$4,3
+        lw      $5,68($fp)
+        addu    $4,$5,$4
+        sw      $4,76($fp)
+        move    $7,$3
+        move    $6,$2
+        move    $5,$17
+        move    $4,$16
+        jal     __divdf3
+        nop
+        lw      $4,76($fp)
+        sw      $3,4($4)
+        sw      $2,0($4)
+        lw      $2,44($fp)
+        addiu   $2,$2,-1
+        sw      $2,44($fp)
+        bgez    $2,L_sl_back_loop
+        nop
         lw      $2,68($fp)
         move    $sp,$fp
         lw      $31,124($sp)
-        lw      $fp,120($sp)
         addiu   $sp,$sp,128
         jr      $31
         nop
@@ -1039,7 +950,6 @@ apply_filter:
         sw      $5,68($fp)
         sw      $6,72($fp)
         sw      $7,76($fp)
-        
         lw      $2,80($fp)
         lw      $3,72($fp)
         sw      $3,0($2)
@@ -1047,11 +957,11 @@ apply_filter:
         jal     malloc
         nop
         sw      $2,32($fp)
-        sw      $0,24($fp) # n=0
+        sw      $0,24($fp)
 L_af_n:
         sw      $0,28($fp)
         sw      $0,36($fp)
-        sw      $0,40($fp) # k=0
+        sw      $0,40($fp)
 L_af_k:
         lw      $3,24($fp)
         lw      $2,40($fp)
@@ -1060,7 +970,6 @@ L_af_k:
         lw      $3,72($fp)
         sge     $3,$2,$3
         bnez    $3, L_af_skip
-        
         lw      $3,68($fp)
         lw      $4,40($fp)
         sll     $4,$4,3
@@ -1091,7 +1000,6 @@ L_af_skip:
         slt     $2,$3,$2
         bne     $2,$0,L_af_k
         nop
-        
         lw      $4,32($fp)
         lw      $2,24($fp)
         sll     $2,$2,3
@@ -1108,11 +1016,9 @@ L_af_skip:
         slt     $2,$3,$2
         bne     $2,$0,L_af_n
         nop
-        
         lw      $2,32($fp)
         move    $sp,$fp
         lw      $31,60($sp)
-        lw      $fp,56($sp)
         addiu   $sp,$sp,64
         jr      $31
         nop
@@ -1163,7 +1069,6 @@ L_mm:
         slt     $2,$3,$2
         bne     $2,$0,L_mm
         nop
-        
         lw      $4,64($fp)
         jal     __floatsidf
         nop
@@ -1173,10 +1078,192 @@ L_mm:
         lw      $4,24($fp)
         jal     __divdf3
         nop
-        
         move    $sp,$fp
         lw      $31,52($sp)
-        lw      $fp,48($sp)
         addiu   $sp,$sp,56
         jr      $31
         nop
+
+# =========================================================================
+# MAIN
+# =========================================================================
+main:
+        addiu   $sp,$sp,-136
+        sw      $31,132($sp)
+        sw      $fp,128($sp)
+        move    $fp,$sp
+        la      $4,LC_FILE_DES
+        jal     read_signal
+        nop
+        sw      $2,44($fp)
+        la      $4,LC_FILE_INP
+        jal     read_signal
+        nop
+        sw      $2,48($fp)
+        lw      $2,44($fp)
+        beq     $2,$0,L_err_size
+        lw      $2,48($fp)
+        beq     $2,$0,L_err_size
+        
+        li      $2,10
+        sw      $2,52($fp)
+        sw      $2,56($fp)
+        
+        lw      $6,52($fp)
+        lw      $5,56($fp)
+        lw      $4,48($fp)
+        jal     compute_autocorrelation
+        nop
+        sw      $2,60($fp)
+        
+        addiu   $2,$fp,104
+        sw      $2,16($sp)
+        lw      $7,52($fp)
+        lw      $6,56($fp)
+        lw      $5,48($fp)
+        lw      $4,44($fp)
+        jal     compute_cross_correlation
+        nop
+        sw      $2,64($fp)
+        
+        addiu   $2,$fp,108
+        move    $7,$2
+        lw      $6,56($fp)
+        lw      $5,64($fp)
+        lw      $4,60($fp)
+        jal     solve_linear_system
+        nop
+        sw      $2,68($fp)
+        beq     $2,$0,L_err_solve
+        
+        addiu   $2,$fp,112
+        sw      $2,16($sp)
+        lw      $7,56($fp)
+        lw      $6,52($fp)
+        lw      $5,68($fp)
+        lw      $4,48($fp)
+        jal     apply_filter
+        nop
+        sw      $2,72($fp)
+        
+        lw      $6,52($fp)
+        lw      $5,72($fp)
+        lw      $4,44($fp)
+        jal     calculate_mmse
+        nop
+        sw      $3,84($fp)
+        sw      $2,80($fp)
+        
+        la      $4,LC_STR_FILTER
+        jal     puts
+        nop
+        sw      $0,36($fp)
+L_p_loop:
+        lw      $2,36($fp)
+        sll     $2,$2,3
+        lw      $3,72($fp)
+        addu    $2,$3,$2
+        lw      $3,4($2)
+        lw      $2,0($2)
+        la      $4,LC13
+        lw      $7,4($4)
+        lw      $6,0($4)
+        move    $5,$3
+        move    $4,$2
+        jal     __muldf3
+        nop
+        move    $5,$3
+        move    $4,$2
+        jal     round
+        nop
+        move    $5,$3
+        move    $4,$2
+        la      $4,LC13
+        lw      $7,4($4)
+        lw      $6,0($4)
+        jal     __divdf3
+        nop
+        
+        move    $17,$3
+        move    $16,$2
+        lw      $2,36($fp)
+        sll     $2,$2,3
+        lw      $3,72($fp)
+        addu    $2,$3,$2
+        sw      $17,4($2)
+        sw      $16,0($2)
+        
+        la      $4,LC_FMT_SPACE
+        li      $v0,4
+        syscall
+        mtc1    $16,$f12
+        mtc1    $17,$f13
+        li      $v0,3
+        syscall
+        
+        lw      $2,36($fp)
+        addiu   $2,$2,1
+        sw      $2,36($fp)
+        lw      $3,112($fp)
+        slt     $2,$2,$3
+        bne     $2,$0,L_p_loop
+        nop
+        
+        li      $a0,10
+        li      $v0,11
+        syscall
+        
+        lw      $6,52($fp)
+        lw      $5,72($fp)
+        lw      $4,44($fp)
+        jal     calculate_mmse
+        nop
+        sw      $3,84($fp)
+        sw      $2,80($fp)
+        
+        la      $4,LC13
+        lw      $7,4($4)
+        lw      $6,0($4)
+        lw      $5,84($fp)
+        lw      $4,80($fp)
+        jal     __muldf3
+        nop
+        move    $5,$3
+        move    $4,$2
+        jal     round
+        nop
+        move    $5,$3
+        move    $4,$2
+        la      $4,LC13
+        lw      $7,4($4)
+        lw      $6,0($4)
+        jal     __divdf3
+        nop
+        
+        move    $2,$16
+        move    $3,$17
+        
+        la      $4,LC_STR_MMSE
+        li      $v0,4
+        syscall
+        mtc1    $16,$f12
+        mtc1    $17,$f13
+        li      $v0,3
+        syscall
+        li      $a0,10
+        li      $v0,11
+        syscall
+        j       L_end
+
+L_err_size:
+        la      $4,LC_ERR_SIZE
+        jal     puts
+        nop
+        j       L_end
+L_err_solve:
+        la      $4,LC_ERR_SOLVE
+        jal     puts
+        nop
+L_end:
+        li      $v0,10
+        syscall
